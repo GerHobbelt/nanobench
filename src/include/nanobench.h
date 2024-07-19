@@ -1329,6 +1329,7 @@ void doNotOptimizeAway(T const& val) {
 #    include <fstream>   // ifstream to parse proc files
 #    include <iomanip>   // setw, setprecision
 #    include <iostream>  // cout
+#    include <mutex>     // mutex, lock_guard
 #    include <numeric>   // accumulate
 #    include <random>    // random_device
 #    include <sstream>   // to_s in Number
@@ -1813,7 +1814,7 @@ void gatherStabilityInformation(std::vector<std::string>& warnings, std::vector<
 void printStabilityInformationOnce(std::ostream* outStream);
 
 // remembers the last table settings used. When it changes, a new table header is automatically written for the new entry.
-uint64_t& singletonHeaderHash() noexcept;
+uint64_t& singletonHeaderHash(std::ostream const& _out) noexcept;
 
 // determines resolution of the given clock. This is done by measuring multiple times and returning the minimum time difference.
 Clock::duration calcClockResolution(size_t numEvaluations) noexcept;
@@ -2126,9 +2127,12 @@ void printStabilityInformationOnce(std::ostream* outStream) {
 }
 
 // remembers the last table settings used. When it changes, a new table header is automatically written for the new entry.
-uint64_t& singletonHeaderHash() noexcept {
-    static uint64_t sHeaderHash{};
-    return sHeaderHash;
+uint64_t& singletonHeaderHash(std::ostream const& _out) noexcept {
+    static std::mutex sMutex;
+    static std::unordered_map<std::ostream const*, uint64_t> sHeaderHashes;
+    std::lock_guard<std::mutex> guard{sMutex};
+
+    return sHeaderHashes[&_out];
 }
 
 ANKERL_NANOBENCH_NO_SANITIZE("integer", "undefined")
@@ -2354,8 +2358,8 @@ struct IterationLogic::Impl {
             hash = hash_combine(std::hash<bool>{}(mBench.relative()), hash);
             hash = hash_combine(std::hash<bool>{}(mBench.performanceCounters()), hash);
 
-            if (hash != singletonHeaderHash()) {
-                singletonHeaderHash() = hash;
+            if (hash != singletonHeaderHash(os)) {
+                singletonHeaderHash(os) = hash;
 
                 // no result yet, print header
                 os << std::endl;

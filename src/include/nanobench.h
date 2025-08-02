@@ -365,6 +365,10 @@ class PerformanceCounters;
 class LinuxPerformanceCounters;
 #endif
 
+auto strToUInt(char const* strPtr, size_t defaultVal) -> size_t;
+auto defaultMinEpochTime() -> std::chrono::nanoseconds;
+auto defaultMinEpochIterations() -> size_t;
+
 } // namespace detail
 } // namespace nanobench
 } // namespace ankerl
@@ -398,8 +402,8 @@ struct Config {
     size_t mNumEpochs = 11;                                                  // NOLINT(misc-non-private-member-variables-in-classes)
     size_t mClockResolutionMultiple = static_cast<size_t>(1000);             // NOLINT(misc-non-private-member-variables-in-classes)
     std::chrono::nanoseconds mMaxEpochTime = std::chrono::milliseconds(100); // NOLINT(misc-non-private-member-variables-in-classes)
-    std::chrono::nanoseconds mMinEpochTime = std::chrono::milliseconds(1);   // NOLINT(misc-non-private-member-variables-in-classes)
-    uint64_t mMinEpochIterations{1};                                         // NOLINT(misc-non-private-member-variables-in-classes)
+    std::chrono::nanoseconds mMinEpochTime = detail::defaultMinEpochTime();  // NOLINT(misc-non-private-member-variables-in-classes)
+    uint64_t mMinEpochIterations = detail::defaultMinEpochIterations();      // NOLINT(misc-non-private-member-variables-in-classes)
     // If not 0, run *exactly* these number of iterations per epoch.
     uint64_t mEpochIterations{0};                                          // NOLINT(misc-non-private-member-variables-in-classes)
     uint64_t mWarmup = 0;                                                  // NOLINT(misc-non-private-member-variables-in-classes)
@@ -2043,6 +2047,43 @@ bool isEndlessRunning(std::string const& name) {
 bool isWarningsEnabled() {
     auto const* const suppression = getEnv("NANOBENCH_SUPPRESS_WARNINGS");
     return nullptr == suppression || suppression == std::string("0");
+}
+
+auto strToUInt(char const* strPtr, size_t defaultVal) -> size_t {
+    if (strPtr == nullptr) return defaultVal;
+    std::string s = strPtr;
+    if (s.empty()) return defaultVal;
+    auto factors = std::vector<std::pair<std::string, size_t>>{
+        {"k",              1000},
+        {"M",           1000000},
+        {"G",        1000000000},
+        {"T",     1000000000000},
+        {"Ki",    size_t{1}<<10},
+        {"Mi",    size_t{1}<<20},
+        {"Gi",    size_t{1}<<30},
+        {"Ti",    size_t{1}<<40},
+    };
+    size_t factor = 1;
+    for (auto const& e : factors) {
+        // check if s has the suffix e.first
+        if (s.size() < e.first.size()) continue;
+        if (s.substr(s.size()-e.first.size()) == e.first) {
+            factor = e.second;
+            s = s.substr(0, s.size()-e.first.size());
+            break;
+        }
+    }
+    return std::stoull(s) * factor;
+}
+
+auto defaultMinEpochTime() -> std::chrono::nanoseconds {
+    auto env = getEnv("NANOBENCH_MIN_EPOCH_TIME");
+    return std::chrono::nanoseconds{strToUInt(env, 1000000)};
+}
+
+auto defaultMinEpochIterations() -> size_t {
+    auto env = getEnv("NANOBENCH_MIN_EPOCH_ITERATIONS");
+    return strToUInt(env, 1);
 }
 
 void gatherStabilityInformation(std::vector<std::string>& warnings, std::vector<std::string>& recommendations) {

@@ -46,6 +46,11 @@
 #include <unordered_map> // holds context information of results
 #include <vector>        // holds all results
 
+#if __cplusplus >= 201606L
+#    include <string_view> // some names
+#    define ANKERL_NANOBENCH_PRIVATE_UTILIZE_STRING_VIEW __cpp_lib_string_view
+#endif // __cplusplus >= 201606L
+
 #define ANKERL_NANOBENCH(x) ANKERL_NANOBENCH_PRIVATE_##x()
 
 #define ANKERL_NANOBENCH_PRIVATE_CXX() __cplusplus
@@ -663,6 +668,12 @@ public:
     ANKERL_NANOBENCH(NOINLINE)
     Bench& run(std::string const& benchmarkName, Op&& op);
 
+#ifdef ANKERL_NANOBENCH_PRIVATE_UTILIZE_STRING_VIEW
+    template <typename Op>
+    ANKERL_NANOBENCH(NOINLINE)
+    Bench& run(std::string_view benchmarkName, Op&& op);
+#endif // ANKERL_NANOBENCH_PRIVATE_UTILIZE_STRING_VIEW
+
     /**
      * @brief Same as run(char const* benchmarkName, Op op), but instead uses the previously set name.
      * @tparam Op The code to benchmark.
@@ -687,6 +698,9 @@ public:
     /// Name of the benchmark, will be shown in the table row.
     Bench& name(char const* benchmarkName);
     Bench& name(std::string const& benchmarkName);
+#ifdef ANKERL_NANOBENCH_PRIVATE_UTILIZE_STRING_VIEW
+    Bench& name(std::string_view benchmarkName);
+#endif // ANKERL_NANOBENCH_PRIVATE_UTILIZE_STRING_VIEW
     ANKERL_NANOBENCH(NODISCARD) std::string const& name() const noexcept;
 
     /**
@@ -1242,6 +1256,14 @@ Bench& Bench::run(std::string const& benchmarkName, Op&& op) {
     return run(std::forward<Op>(op));
 }
 
+#ifdef ANKERL_NANOBENCH_PRIVATE_UTILIZE_STRING_VIEW
+template <typename Op>
+Bench& Bench::run(std::string_view benchmarkName, Op&& op) {
+    name(benchmarkName);
+    return run(std::forward<Op>(op));
+}
+#endif // ANKERL_NANOBENCH_PRIVATE_UTILIZE_STRING_VIEW
+
 template <typename Op>
 BigO Bench::complexityBigO(char const* benchmarkName, Op op) const {
     return BigO(benchmarkName, BigO::collectRangeMeasure(mResults), op);
@@ -1307,6 +1329,7 @@ void doNotOptimizeAway(T const& val) {
 #    include <fstream>   // ifstream to parse proc files
 #    include <iomanip>   // setw, setprecision
 #    include <iostream>  // cout
+#    include <mutex>     // mutex, lock_guard
 #    include <numeric>   // accumulate
 #    include <random>    // random_device
 #    include <sstream>   // to_s in Number
@@ -1791,7 +1814,7 @@ void gatherStabilityInformation(std::vector<std::string>& warnings, std::vector<
 void printStabilityInformationOnce(std::ostream* outStream);
 
 // remembers the last table settings used. When it changes, a new table header is automatically written for the new entry.
-uint64_t& singletonHeaderHash() noexcept;
+uint64_t& singletonHeaderHash(std::ostream const& _out) noexcept;
 
 // determines resolution of the given clock. This is done by measuring multiple times and returning the minimum time difference.
 Clock::duration calcClockResolution(size_t numEvaluations) noexcept;
@@ -2104,9 +2127,12 @@ void printStabilityInformationOnce(std::ostream* outStream) {
 }
 
 // remembers the last table settings used. When it changes, a new table header is automatically written for the new entry.
-uint64_t& singletonHeaderHash() noexcept {
-    static uint64_t sHeaderHash{};
-    return sHeaderHash;
+uint64_t& singletonHeaderHash(std::ostream const& _out) noexcept {
+    static std::mutex sMutex;
+    static std::unordered_map<std::ostream const*, uint64_t> sHeaderHashes;
+    std::lock_guard<std::mutex> guard{sMutex};
+
+    return sHeaderHashes[&_out];
 }
 
 ANKERL_NANOBENCH_NO_SANITIZE("integer", "undefined")
@@ -2332,8 +2358,8 @@ struct IterationLogic::Impl {
             hash = hash_combine(std::hash<bool>{}(mBench.relative()), hash);
             hash = hash_combine(std::hash<bool>{}(mBench.performanceCounters()), hash);
 
-            if (hash != singletonHeaderHash()) {
-                singletonHeaderHash() = hash;
+            if (hash != singletonHeaderHash(os)) {
+                singletonHeaderHash(os) = hash;
 
                 // no result yet, print header
                 os << std::endl;
@@ -3214,6 +3240,13 @@ Bench& Bench::name(std::string const& benchmarkName) {
     return *this;
 }
 
+#    ifdef ANKERL_NANOBENCH_PRIVATE_UTILIZE_STRING_VIEW
+Bench& Bench::name(std::string_view const benchmarkName) {
+    mConfig.mBenchmarkName = benchmarkName;
+    return *this;
+}
+#    endif // ANKERL_NANOBENCH_PRIVATE_UTILIZE_STRING_VIEW
+
 std::string const& Bench::name() const noexcept {
     return mConfig.mBenchmarkName;
 }
@@ -3260,7 +3293,7 @@ std::chrono::nanoseconds Bench::maxEpochTime() const noexcept {
     return mConfig.mMaxEpochTime;
 }
 
-// Sets the maximum time each epoch should take. Default is 100ms.
+// Sets the minimum time each epoch should take. Default is 1ms.
 Bench& Bench::minEpochTime(std::chrono::nanoseconds t) noexcept {
     mConfig.mMinEpochTime = t;
     return *this;

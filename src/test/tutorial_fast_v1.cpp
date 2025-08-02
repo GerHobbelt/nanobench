@@ -1,5 +1,5 @@
 #include <nanobench.h>
-#include <thirdparty/doctest/doctest.h>
+#include <doctest/doctest.h>
 
 // NOLINTNEXTLINE
 TEST_CASE("tutorial_fast_v1") {

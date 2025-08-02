@@ -3,7 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <random>
-#include <thirdparty/doctest/doctest.h>
+#include <doctest/doctest.h>
 
 #if defined(__SIZEOF_INT128__)
 #    if defined(__GNUC__) || defined(__clang__)
